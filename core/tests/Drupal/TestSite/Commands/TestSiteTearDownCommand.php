@@ -20,28 +20,6 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 class TestSiteTearDownCommand extends Command {
 
   /**
-   * The used PHP autoloader.
-   *
-   * @var object
-   */
-  protected $autoloader;
-
-  /**
-   * Constructs a new TestSiteTearDownCommand.
-   *
-   * @param string $autoloader
-   *   The used PHP autoloader.
-   * @param string|null $name
-   *   The name of the command. Passing NULL means it must be set in
-   *   configure().
-   */
-  public function __construct($autoloader, $name = NULL) {
-    parent::__construct($name);
-
-    $this->autoloader = $autoloader;
-  }
-
-  /**
    * {@inheritdoc}
    */
   protected function configure() {

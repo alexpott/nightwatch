@@ -4,6 +4,7 @@ namespace Drupal\TestSite\Commands;
 
 use Drupal\Core\Database\Database;
 use Drupal\Core\Test\FunctionalTestSetupTrait;
+use Drupal\Core\Test\TestDatabase;
 use Drupal\Core\Test\TestSetupTrait;
 use Drupal\TestSite\TestSetupInterface;
 use Drupal\Tests\RandomGeneratorTrait;
@@ -215,6 +216,16 @@ class TestSiteInstallCommand extends Command {
     // Ensure that we use the database from SIMPLETEST_DB environment variable.
     Database::removeConnection('default');
     $this->changeDatabasePrefixTrait();
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  protected function prepareDatabasePrefix() {
+    // Override this method so that we can force a lock to be created.
+    $test_db = new TestDatabase(NULL, TRUE);
+    $this->siteDirectory = $test_db->getTestSitePath();
+    $this->databasePrefix = $test_db->getDatabasePrefix();
   }
 
 }
