@@ -30,14 +30,7 @@ module.exports = {
     if (phpWebServer) {
       phpWebServer.kill();
     }
-    try {
-      execSync(commandAsWebserver(`php ./scripts/test-site.php release-lock --all`));
-    }
-    catch(error) {
-      this.assert.fail(error);
-      // Nightwatch doesn't like it when no actions are added in command file.
-      this.pause(200);
-    }
+    execSync(commandAsWebserver(`php ./scripts/test-site.php release-lock --all`));
     done();
   },
   commandAsWebserver,
