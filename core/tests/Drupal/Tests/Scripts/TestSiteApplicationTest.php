@@ -2,6 +2,7 @@
 
 namespace Drupal\Tests\Scripts;
 
+use Drupal\Component\FileSystem\FileSystem;
 use Drupal\Core\Database\Database;
 use Drupal\Core\Test\TestDatabase;
 use Drupal\TestSite\TestSiteInstallTestScript;
@@ -85,10 +86,10 @@ class TestSiteApplicationTest extends UnitTestCase {
       $this->markTestSkipped("Requires the directory $simpletest_path to exist and be writable");
     }
     $php_binary_finder = new PhpExecutableFinder();
-    $php_inary_path = $php_binary_finder->find();
+    $php_binary_path = $php_binary_finder->find();
 
     // Install a site using the JSON output.
-    $command_line = $php_inary_path . ' core/scripts/test-site.php install --json --setup_class "' . TestSiteInstallTestScript::class . '" --db_url "' . getenv('SIMPLETEST_DB') . '"';
+    $command_line = $php_binary_path . ' core/scripts/test-site.php install --json --setup_class "' . TestSiteInstallTestScript::class . '" --db_url "' . getenv('SIMPLETEST_DB') . '"';
     $process = new Process($command_line, $this->root);
     // Set the timeout to a value that allows debugging.
     $process->setTimeout(500);
@@ -115,9 +116,12 @@ class TestSiteApplicationTest extends UnitTestCase {
     $test_file = $this->root . DIRECTORY_SEPARATOR . $test_database->getTestSitePath() . DIRECTORY_SEPARATOR . '.htkey';
     $this->assertFileExists($test_file);
 
+    // Ensure the lock file exists.
+    $this->assertFileExists($this->getTestLockFile($db_prefix));
+
     // Install another site so we can ensure tear down only removes one site at
     // a time. Use the regular output.
-    $command_line = $php_inary_path . ' core/scripts/test-site.php install --setup_class "' . TestSiteInstallTestScript::class . '" --db_url "' . getenv('SIMPLETEST_DB') . '"';
+    $command_line = $php_binary_path . ' core/scripts/test-site.php install --setup_class "' . TestSiteInstallTestScript::class . '" --db_url "' . getenv('SIMPLETEST_DB') . '"';
     $process = new Process($command_line, $this->root);
     // Set the timeout to a value that allows debugging.
     $process->setTimeout(500);
@@ -131,8 +135,11 @@ class TestSiteApplicationTest extends UnitTestCase {
     $other_key = $this->addTestDatabase($other_db_prefix);
     $this->assertGreaterThan(0, count(Database::getConnection('default', $other_key)->schema()->findTables('%')));
 
+    // Ensure the lock file exists for the new install.
+    $this->assertFileExists($this->getTestLockFile($other_db_prefix));
+
     // Now test the tear down process as well.
-    $command_line = $php_inary_path . ' core/scripts/test-site.php tear-down ' . $db_prefix . ' --db_url "' . getenv('SIMPLETEST_DB') . '"';
+    $command_line = $php_binary_path . ' core/scripts/test-site.php tear-down ' . $db_prefix . ' --db_url "' . getenv('SIMPLETEST_DB') . '"';
     $process = new Process($command_line, $this->root);
     // Set the timeout to a value that allows debugging.
     $process->setTimeout(500);
@@ -154,7 +161,7 @@ class TestSiteApplicationTest extends UnitTestCase {
     // site is broken. Prove this by removing its settings.php.
     $test_site_settings = $this->root . DIRECTORY_SEPARATOR . $test_database->getTestSitePath() . DIRECTORY_SEPARATOR . 'settings.php';
     $this->assertTrue(unlink($test_site_settings));
-    $command_line = $php_inary_path . ' core/scripts/test-site.php tear-down ' . $other_db_prefix . ' --db_url "' . getenv('SIMPLETEST_DB') . '"';
+    $command_line = $php_binary_path . ' core/scripts/test-site.php tear-down ' . $other_db_prefix . ' --db_url "' . getenv('SIMPLETEST_DB') . '"';
     $process = new Process($command_line, $this->root);
     // Set the timeout to a value that allows debugging.
     $process->setTimeout(500);
@@ -165,6 +172,22 @@ class TestSiteApplicationTest extends UnitTestCase {
     // Ensure that all the tables and files for this DB prefix are gone.
     $this->assertCount(0, Database::getConnection('default', $other_key)->schema()->findTables('%'));
     $this->assertFileNotExists($test_file);
+
+    // The locks should still exist.
+    $this->assertFileExists($this->getTestLockFile($db_prefix));
+    $this->assertFileExists($this->getTestLockFile($other_db_prefix));
+
+    // Test releasing a lock. We can't test releasing all locks because this
+    // would affect the DrupalCI test run.
+    $command_line = $php_binary_path . ' core/scripts/test-site.php release-lock ' . $db_prefix;
+    $process = new Process($command_line, $this->root);
+    $process->run();
+    $this->assertFileNotExists($this->getTestLockFile($db_prefix));
+    $this->assertFileExists($this->getTestLockFile($other_db_prefix));
+    $command_line = $php_binary_path . ' core/scripts/test-site.php release-lock ' . $other_db_prefix;
+    $process = new Process($command_line, $this->root);
+    $process->run();
+    $this->assertFileNotExists($this->getTestLockFile($other_db_prefix));
   }
 
   /**
@@ -204,6 +227,14 @@ class TestSiteApplicationTest extends UnitTestCase {
 
     // Ensure that all the tables for this DB prefix are gone.
     $this->assertCount(0, Database::getConnection('default', $this->addTestDatabase($db_prefix))->schema()->findTables('%'));
+
+    // Clean up the test site lock.
+    $this->assertFileExists($this->getTestLockFile($db_prefix));
+    $command_line = $php_binary_path . ' core/scripts/test-site.php release-lock ' . $db_prefix;
+    $process = new Process($command_line, $this->root);
+    $process->run();
+    $this->assertSame(0, $process->getExitCode());
+    $this->assertFileNotExists($this->getTestLockFile($db_prefix));
   }
 
   /**
@@ -222,6 +253,20 @@ class TestSiteApplicationTest extends UnitTestCase {
   }
 
   /**
+   * @coversNothing
+   */
+  public function testReleaseLockValidation() {
+    $php_binary_finder = new PhpExecutableFinder();
+    $php_binary_path = $php_binary_finder->find();
+
+    $command_line = $php_binary_path . ' core/scripts/test-site.php release-lock';
+    $process = new Process($command_line, $this->root);
+    $process->run();
+    $this->assertSame(1, $process->getExitCode());
+    $this->assertContains('The release-lock command should be called with a database prefix or --all', $process->getErrorOutput());
+  }
+
+  /**
    * Adds the installed test site to the database connection info.
    *
    * @param string $db_prefix
@@ -236,6 +281,20 @@ class TestSiteApplicationTest extends UnitTestCase {
     $target = __CLASS__ . $db_prefix;
     Database::addConnectionInfo($target, 'default', $database);
     return $target;
+  }
+
+  /**
+   * Gets the lock file path.
+   *
+   * @param string $db_prefix
+   *   The prefix of the installed test site.
+   *
+   * @return string
+   *   The lock file path.
+   */
+  protected function getTestLockFile($db_prefix) {
+    $lock_id = str_replace('test', '', $db_prefix);
+    return FileSystem::getOsTemporaryDirectory() . '/test_' . $lock_id;
   }
 
 }
