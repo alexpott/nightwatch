@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import chromedriver from 'chromedriver';
 
 const commandAsWebserver = (command) => {
@@ -29,6 +29,14 @@ module.exports = {
     }
     if (phpWebServer) {
       phpWebServer.kill();
+    }
+    try {
+      execSync(commandAsWebserver(`php ./scripts/test-site.php release-lock --all`));
+    }
+    catch(error) {
+      this.assert.fail(error);
+      // Nightwatch doesn't like it when no actions are added in command file.
+      this.pause(200);
     }
     done();
   },
